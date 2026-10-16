@@ -1,25 +1,815 @@
 <!DOCTYPE html>
-<html lang="ja">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="description" content="シンプルな時間計測タイマー" />
-    <title>Simple Timer</title>
-    <link rel="stylesheet" href="./style.css" />
-  </head>
-  <body>
-    <main class="timer-app" aria-live="polite">
-      <section class="timer-card" aria-label="タイマー">
-        <p class="label">時間</p>
-        <div id="display" class="display" aria-live="polite">00:00:00.0</div>
+<html lang="ja" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>タイマー & ストップウォッチ</title>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- Google Fonts: Inter & JetBrains Mono (数字の等幅表示用) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+  
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
 
-        <div class="controls">
-          <button id="startPauseBtn" class="primary" type="button">開始</button>
-          <button id="resetBtn" class="secondary" type="button">リセット</button>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          },
+          boxShadow: {
+            'glow-cyan': '0 0 30px -5px rgba(6, 182, 212, 0.4)',
+            'glow-emerald': '0 0 30px -5px rgba(16, 185, 129, 0.4)',
+            'glow-rose': '0 0 30px -5px rgba(244, 63, 94, 0.4)',
+            'glow-purple': '0 0 30px -5px rgba(168, 85, 247, 0.4)',
+          },
+          animation: {
+            'pulse-fast': 'pulse 0.8s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+            'spin-slow': 'spin 8s linear infinite',
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    /* カスタムスクロールバー設定 */
+    ::-webkit-scrollbar {
+      width: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: rgba(15, 23, 42, 0.6);
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(51, 65, 85, 0.8);
+      border-radius: 9999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(71, 85, 105, 1);
+    }
+
+    /* アラーム鳴動時のフラッシュアニメーション */
+    @keyframes alarm-flash {
+      0%, 100% { background-color: rgba(15, 23, 42, 0.95); }
+      50% { background-color: rgba(153, 27, 27, 0.4); }
+    }
+    .alarm-active {
+      animation: alarm-flash 0.8s infinite;
+    }
+
+    /* 数値入力のスピンボタン削除 */
+    input[type="number"]::-webkit-inner-spin-button,
+    input[type="number"]::-webkit-outer-spin-button {
+      -webkit-appearance: none;
+      margin: 0;
+    }
+    input[type="number"] {
+      -moz-appearance: textfield;
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col font-sans selection:bg-cyan-500 selection:text-white relative overflow-x-hidden">
+
+  <!-- 背景アンビエントグラデーション光彩効果 -->
+  <div class="fixed top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-indigo-600/20 rounded-full blur-[120px] pointer-events-none -z-10"></div>
+  <div class="fixed bottom-10 left-10 w-[350px] h-[350px] bg-cyan-600/15 rounded-full blur-[100px] pointer-events-none -z-10"></div>
+  <div class="fixed top-10 right-10 w-[350px] h-[350px] bg-purple-600/15 rounded-full blur-[100px] pointer-events-none -z-10"></div>
+
+  <!-- アプリケーション メインコンテナ -->
+  <div class="flex-1 flex flex-col items-center justify-center p-4 sm:p-6 md:p-8 max-w-4xl mx-auto w-full">
+    
+    <!-- ヘッダータイトル & タブナビゲーション -->
+    <header class="w-full max-w-xl mb-6 text-center">
+      <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-slate-800/80 border border-slate-700/50 text-xs font-medium text-cyan-400 mb-3 shadow-inner">
+        <i data-lucide="zap" class="w-3.5 h-3.5"></i> Web Audio & Precise Timing
+      </div>
+      <h1 class="text-3xl sm:text-4xl font-extrabold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 via-indigo-300 to-purple-400 mb-6">
+        CHRONO STUDIO
+      </h1>
+
+      <!-- モード切り替えタブ -->
+      <div class="grid grid-cols-2 p-1.5 bg-slate-900/80 border border-slate-800 rounded-2xl backdrop-blur-xl shadow-2xl">
+        <button id="tab-timer-btn" onclick="switchTab('timer')" 
+                class="flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-sm font-semibold transition-all duration-300 bg-cyan-500 text-slate-950 shadow-glow-cyan">
+          <i data-lucide="timer" class="w-4 h-4"></i>
+          タイマー
+        </button>
+        <button id="tab-stopwatch-btn" onclick="switchTab('stopwatch')" 
+                class="flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-sm font-semibold text-slate-400 hover:text-slate-200 transition-all duration-300">
+          <i data-lucide="watch" class="w-4 h-4"></i>
+          ストップウォッチ
+        </button>
+      </div>
+    </header>
+
+    <!-- メインコンテンツカード -->
+    <main class="w-full max-w-xl bg-slate-900/60 backdrop-blur-2xl border border-slate-800/80 rounded-3xl p-6 sm:p-8 shadow-2xl relative overflow-hidden">
+      
+      <!-- ========================================== -->
+      <!-- 1. カウントダウンタイマー セクション -->
+      <!-- ========================================== -->
+      <section id="timer-section" class="flex flex-col items-center">
+        
+        <!-- 円形プログレスディスプレイ -->
+        <div class="relative w-64 h-64 sm:w-72 sm:h-72 my-2 flex items-center justify-center">
+          <svg class="w-full h-full -rotate-90 transform" viewBox="0 0 280 280">
+            <!-- グラデーション定義 -->
+            <defs>
+              <linearGradient id="timerGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#06b6d4" />
+                <stop offset="50%" stop-color="#6366f1" />
+                <stop offset="100%" stop-color="#a855f7" />
+              </linearGradient>
+            </defs>
+            <!-- バックグラウンド トラック -->
+            <circle cx="140" cy="140" r="120" stroke="currentColor" stroke-width="10" class="text-slate-800/80" fill="transparent" />
+            <!-- アクティブ プログレスバー -->
+            <circle id="timer-progress-ring" cx="140" cy="140" r="120" stroke="url(#timerGradient)" stroke-width="10" stroke-linecap="round" fill="transparent"
+                    stroke-dasharray="753.98" stroke-dashoffset="0" class="transition-all duration-300 ease-out" />
+          </svg>
+
+          <!-- ディスプレイ内部のテキスト表示 -->
+          <div class="absolute inset-0 flex flex-col items-center justify-center text-center px-4">
+            <span id="timer-display" class="font-mono text-4xl sm:text-5xl font-extrabold tracking-wider text-slate-100 drop-shadow-md">
+              25:00
+            </span>
+            <span id="timer-sub-text" class="text-xs text-slate-400 mt-2 font-medium tracking-wide">
+              目標: 25分 00秒
+            </span>
+            <div id="timer-status-badge" class="mt-2 px-2.5 py-0.5 rounded-full text-[10px] font-bold tracking-widest uppercase bg-slate-800 text-slate-400 border border-slate-700">
+              READY
+            </div>
+          </div>
         </div>
+
+        <!-- タイマー操作メインボタン -->
+        <div class="flex items-center gap-4 mt-6 w-full justify-center">
+          <!-- スタート / 一時停止 -->
+          <button id="timer-start-btn" onclick="toggleTimer()" 
+                  class="flex-1 max-w-[160px] py-3.5 px-6 rounded-2xl bg-gradient-to-r from-cyan-500 to-indigo-600 text-white font-bold text-base flex items-center justify-center gap-2 shadow-glow-cyan hover:brightness-110 active:scale-95 transition-all">
+            <i data-lucide="play" class="w-5 h-5 fill-current" id="timer-start-icon"></i>
+            <span id="timer-start-text">スタート</span>
+          </button>
+
+          <!-- リセット -->
+          <button onclick="resetTimer()" 
+                  class="p-3.5 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700/80 active:scale-95 transition-all" title="リセット (R)">
+            <i data-lucide="rotate-ccw" class="w-5 h-5"></i>
+          </button>
+
+          <!-- 設定/プリセット トグルボタン -->
+          <button id="timer-edit-toggle-btn" onclick="toggleTimerSettings()" 
+                  class="p-3.5 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700/80 active:scale-95 transition-all" title="時間設定">
+            <i data-lucide="sliders" class="w-5 h-5"></i>
+          </button>
+        </div>
+
+        <!-- クイックプリセットボタン群 -->
+        <div class="w-full mt-6 pt-6 border-t border-slate-800/80">
+          <div class="flex items-center justify-between mb-3">
+            <span class="text-xs font-semibold text-slate-400 flex items-center gap-1.5">
+              <i data-lucide="zap" class="w-3.5 h-3.5 text-amber-400"></i> クイックプリセット
+            </span>
+            <span class="text-[11px] text-slate-500">ワンタップでセット</span>
+          </div>
+          <div class="grid grid-cols-4 sm:grid-cols-7 gap-2">
+            <button onclick="setTimerPreset(1)" class="py-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 border border-slate-700/50 text-xs font-medium text-slate-300 transition-all hover:border-cyan-500/50">1分</button>
+            <button onclick="setTimerPreset(3)" class="py-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 border border-slate-700/50 text-xs font-medium text-slate-300 transition-all hover:border-cyan-500/50">3分</button>
+            <button onclick="setTimerPreset(5)" class="py-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 border border-slate-700/50 text-xs font-medium text-slate-300 transition-all hover:border-cyan-500/50">5分</button>
+            <button onclick="setTimerPreset(10)" class="py-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 border border-slate-700/50 text-xs font-medium text-slate-300 transition-all hover:border-cyan-500/50">10分</button>
+            <button onclick="setTimerPreset(15)" class="py-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 border border-slate-700/50 text-xs font-medium text-slate-300 transition-all hover:border-cyan-500/50">15分</button>
+            <button onclick="setTimerPreset(25)" class="py-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 border border-slate-700/50 text-xs font-medium text-cyan-400 border-cyan-500/30 transition-all hover:border-cyan-500">25分</button>
+            <button onclick="setTimerPreset(45)" class="py-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 border border-slate-700/50 text-xs font-medium text-slate-300 transition-all hover:border-cyan-500/50">45分</button>
+          </div>
+        </div>
+
+        <!-- タイマー詳細時間設定パネル (トグル表示) -->
+        <div id="timer-settings-panel" class="hidden w-full mt-4 p-4 rounded-2xl bg-slate-950/80 border border-slate-800 transition-all">
+          <div class="text-xs font-semibold text-slate-300 mb-3 flex items-center justify-between">
+            <span>カスタム時間設定</span>
+            <button onclick="toggleTimerSettings()" class="text-slate-500 hover:text-slate-300"><i data-lucide="x" class="w-4 h-4"></i></button>
+          </div>
+          <div class="grid grid-cols-3 gap-3 mb-4">
+            <div>
+              <label class="block text-[11px] text-slate-400 mb-1">時間 (H)</label>
+              <input type="number" id="input-hours" min="0" max="99" value="0" onchange="updateTimerFromInputs()" 
+                     class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 font-mono text-center text-lg text-slate-100 focus:outline-none focus:border-cyan-500">
+            </div>
+            <div>
+              <label class="block text-[11px] text-slate-400 mb-1">分 (M)</label>
+              <input type="number" id="input-minutes" min="0" max="59" value="25" onchange="updateTimerFromInputs()" 
+                     class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 font-mono text-center text-lg text-slate-100 focus:outline-none focus:border-cyan-500">
+            </div>
+            <div>
+              <label class="block text-[11px] text-slate-400 mb-1">秒 (S)</label>
+              <input type="number" id="input-seconds" min="0" max="59" value="0" onchange="updateTimerFromInputs()" 
+                     class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 font-mono text-center text-lg text-slate-100 focus:outline-none focus:border-cyan-500">
+            </div>
+          </div>
+          
+          <!-- 分数クイック調整スライダー -->
+          <div>
+            <div class="flex justify-between text-[11px] text-slate-400 mb-1">
+              <span>分スライダー</span>
+              <span id="slider-val-text">25 分</span>
+            </div>
+            <input type="range" id="timer-slider" min="1" max="120" value="25" oninput="onSliderInput(this.value)"
+                   class="w-full accent-cyan-500 bg-slate-800 rounded-lg h-2 cursor-pointer">
+          </div>
+        </div>
+
       </section>
+
+      <!-- ========================================== -->
+      <!-- 2. ストップウォッチ セクション -->
+      <!-- ========================================== -->
+      <section id="stopwatch-section" class="hidden flex-col items-center">
+        
+        <!-- ストップウォッチ メインディスプレイ -->
+        <div class="relative w-64 h-64 sm:w-72 sm:h-72 my-2 flex items-center justify-center">
+          <!-- 装飾的な背景リング -->
+          <div class="absolute inset-0 rounded-full border-2 border-dashed border-slate-800 animate-spin-slow"></div>
+          <div class="absolute inset-3 rounded-full border border-slate-800/80"></div>
+
+          <!-- 中央タイム表示 -->
+          <div class="flex flex-col items-center justify-center z-10">
+            <span id="stopwatch-display" class="font-mono text-4xl sm:text-5xl font-extrabold tracking-wider text-slate-100 drop-shadow-md">
+              00:00<span class="text-2xl sm:text-3xl text-cyan-400">.00</span>
+            </span>
+            <div id="stopwatch-status-badge" class="mt-3 px-2.5 py-0.5 rounded-full text-[10px] font-bold tracking-widest uppercase bg-slate-800 text-slate-400 border border-slate-700">
+              STOPPED
+            </div>
+          </div>
+        </div>
+
+        <!-- ストップウォッチ 操作ボタン -->
+        <div class="flex items-center gap-3 mt-6 w-full justify-center">
+          <!-- ラップボタン -->
+          <button id="sw-lap-btn" onclick="addLap()" disabled 
+                  class="flex-1 max-w-[120px] py-3.5 px-4 rounded-2xl bg-slate-800 border border-slate-700/80 text-slate-300 font-semibold text-sm flex items-center justify-center gap-1.5 opacity-50 cursor-not-allowed transition-all active:scale-95">
+            <i data-lucide="flag" class="w-4 h-4"></i>
+            ラップ
+          </button>
+
+          <!-- スタート / ストップボタン -->
+          <button id="sw-start-btn" onclick="toggleStopwatch()" 
+                  class="flex-1 max-w-[160px] py-3.5 px-6 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-600 text-slate-950 font-bold text-base flex items-center justify-center gap-2 shadow-glow-emerald hover:brightness-110 active:scale-95 transition-all">
+            <i data-lucide="play" class="w-5 h-5 fill-current" id="sw-start-icon"></i>
+            <span id="sw-start-text">スタート</span>
+          </button>
+
+          <!-- リセットボタン -->
+          <button id="sw-reset-btn" onclick="resetStopwatch()" 
+                  class="p-3.5 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700/80 active:scale-95 transition-all" title="リセット (R)">
+            <i data-lucide="rotate-ccw" class="w-5 h-5"></i>
+          </button>
+        </div>
+
+        <!-- ラップタイム履歴表示エリア -->
+        <div class="w-full mt-6 pt-4 border-t border-slate-800/80">
+          <div class="flex items-center justify-between mb-3 px-1">
+            <span class="text-xs font-semibold text-slate-400 flex items-center gap-1.5">
+              <i data-lucide="list-ordered" class="w-3.5 h-3.5 text-cyan-400"></i> ラップ履歴
+            </span>
+            <span id="lap-count-badge" class="text-[11px] text-slate-500">0 件</span>
+          </div>
+
+          <!-- ラップテーブルコンテナ -->
+          <div class="max-h-48 overflow-y-auto rounded-2xl bg-slate-950/60 border border-slate-800/80 p-2">
+            <div id="lap-list-empty" class="text-center py-6 text-xs text-slate-500">
+              ラップタイムがここに記録されます
+            </div>
+            <table id="lap-table" class="w-full text-left text-xs font-mono hidden">
+              <thead>
+                <tr class="text-slate-500 border-b border-slate-800/60 font-sans">
+                  <th class="py-2 px-3">ラップ</th>
+                  <th class="py-2 px-3">ラップタイム</th>
+                  <th class="py-2 px-3 text-right">合計時間</th>
+                </tr>
+              </thead>
+              <tbody id="lap-list-body" class="divide-y divide-slate-800/40">
+                <!-- 動的にJavaScriptから挿入 -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </section>
+
     </main>
 
-    <script src="./script.js"></script>
-  </body>
+    <!-- フッター・キーボードショートカット説明ガイド -->
+    <footer class="mt-8 text-center text-xs text-slate-500 flex flex-wrap items-center justify-center gap-4">
+      <span class="flex items-center gap-1.5">
+        <kbd class="px-2 py-0.5 rounded bg-slate-800 border border-slate-700 font-mono text-[10px] text-slate-300">Space</kbd> スタート/一時停止
+      </span>
+      <span class="flex items-center gap-1.5">
+        <kbd class="px-2 py-0.5 rounded bg-slate-800 border border-slate-700 font-mono text-[10px] text-slate-300">R</kbd> リセット
+      </span>
+      <span class="flex items-center gap-1.5">
+        <kbd class="px-2 py-0.5 rounded bg-slate-800 border border-slate-700 font-mono text-[10px] text-slate-300">L</kbd> ラップ記録
+      </span>
+    </footer>
+  </div>
+
+  <!-- ========================================== -->
+  <!-- 3. アラームタイムアップ モーダルモーダル -->
+  <!-- ========================================== -->
+  <div id="alarm-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md hidden transition-opacity">
+    <div class="bg-slate-900 border border-rose-500/50 rounded-3xl p-6 sm:p-8 max-w-sm w-full text-center shadow-glow-rose transform animate-bounce">
+      <div class="w-16 h-16 bg-rose-500/20 text-rose-400 rounded-full flex items-center justify-center mx-auto mb-4 border border-rose-500/30">
+        <i data-lucide="bell-ring" class="w-8 h-8 animate-pulse"></i>
+      </div>
+      <h3 class="text-2xl font-extrabold text-slate-100 mb-2">TIME'S UP!</h3>
+      <p class="text-sm text-slate-300 mb-6">設定したタイマー時間が経過しました！</p>
+      <button onclick="stopAlarmSound()" 
+              class="w-full py-3.5 px-6 rounded-2xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-base shadow-lg transition-all active:scale-95">
+        アラームを停止
+      </button>
+    </div>
+  </div>
+
+  <!-- JavaScript ロジック -->
+  <script>
+    // Lucide アイコン初期化
+    lucide.createIcons();
+
+    // ==========================================
+    // アプリケーション 状態管理 State
+    // ==========================================
+    let currentTab = 'timer'; // 'timer' | 'stopwatch'
+
+    // タイマー関連 State
+    let timerDuration = 25 * 60 * 1000; // デフォルト25分 (ミリ秒)
+    let timerRemaining = timerDuration;
+    let timerRunning = false;
+    let timerEndTime = 0;
+    let timerAnimationFrameId = null;
+
+    // ストップウォッチ関連 State
+    let swRunning = false;
+    let swStartTime = 0;
+    let swAccumulatedTime = 0;
+    let swAnimationFrameId = null;
+    let swLaps = []; // { id, lapTime, totalTime }
+
+    // 円形プログレスリング SVG計算用
+    const RING_RADIUS = 120;
+    const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS; // 753.98
+
+    // Web Audio API アラームサウンドコンテキスト
+    let audioCtx = null;
+    let alarmOscillator = null;
+    let alarmGainNode = null;
+    let alarmInterval = null;
+
+    // ==========================================
+    // タブ切り替え処理
+    // ==========================================
+    function switchTab(tab) {
+      currentTab = tab;
+      const timerBtn = document.getElementById('tab-timer-btn');
+      const swBtn = document.getElementById('tab-stopwatch-btn');
+      const timerSection = document.getElementById('timer-section');
+      const swSection = document.getElementById('stopwatch-section');
+
+      if (tab === 'timer') {
+        timerSection.classList.remove('hidden');
+        timerSection.classList.add('flex');
+        swSection.classList.add('hidden');
+        swSection.classList.remove('flex');
+
+        timerBtn.className = "flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-sm font-semibold transition-all duration-300 bg-cyan-500 text-slate-950 shadow-glow-cyan";
+        swBtn.className = "flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-sm font-semibold text-slate-400 hover:text-slate-200 transition-all duration-300";
+      } else {
+        swSection.classList.remove('hidden');
+        swSection.classList.add('flex');
+        timerSection.classList.add('hidden');
+        timerSection.classList.remove('flex');
+
+        swBtn.className = "flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-sm font-semibold transition-all duration-300 bg-emerald-500 text-slate-950 shadow-glow-emerald";
+        timerBtn.className = "flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-sm font-semibold text-slate-400 hover:text-slate-200 transition-all duration-300";
+      }
+      updateDocTitle();
+    }
+
+    // ==========================================
+    // 1. カウントダウンタイマー ロジック
+    // ==========================================
+    function updateTimerDisplay() {
+      const totalSeconds = Math.ceil(timerRemaining / 1000);
+      const hours = Math.floor(totalSeconds / 3600);
+      const minutes = Math.floor((totalSeconds % 3600) / 60);
+      const seconds = totalSeconds % 60;
+
+      const displayElem = document.getElementById('timer-display');
+      if (hours > 0) {
+        displayElem.innerText = `${padZero(hours)}:${padZero(minutes)}:${padZero(seconds)}`;
+      } else {
+        displayElem.innerText = `${padZero(minutes)}:${padZero(seconds)}`;
+      }
+
+      // プログレスリングの更新
+      const ring = document.getElementById('timer-progress-ring');
+      const fraction = timerDuration > 0 ? (timerRemaining / timerDuration) : 0;
+      const offset = RING_CIRCUMFERENCE * (1 - fraction);
+      ring.style.strokeDashoffset = offset;
+
+      updateDocTitle();
+    }
+
+    function toggleTimer() {
+      initAudioContext();
+      if (timerRunning) {
+        pauseTimer();
+      } else {
+        if (timerRemaining <= 0) return;
+        startTimer();
+      }
+    }
+
+    function startTimer() {
+      timerRunning = true;
+      timerEndTime = Date.now() + timerRemaining;
+
+      document.getElementById('timer-status-badge').innerText = "RUNNING";
+      document.getElementById('timer-status-badge').className = "mt-2 px-2.5 py-0.5 rounded-full text-[10px] font-bold tracking-widest uppercase bg-cyan-500/20 text-cyan-400 border border-cyan-500/30";
+      
+      const startBtnText = document.getElementById('timer-start-text');
+      const startBtnIcon = document.getElementById('timer-start-icon');
+      startBtnText.innerText = "一時停止";
+      startBtnIcon.setAttribute('data-lucide', 'pause');
+      lucide.createIcons();
+
+      function tick() {
+        if (!timerRunning) return;
+        const now = Date.now();
+        timerRemaining = Math.max(0, timerEndTime - now);
+
+        updateTimerDisplay();
+
+        if (timerRemaining <= 0) {
+          timerRunning = false;
+          onTimerComplete();
+        } else {
+          timerAnimationFrameId = requestAnimationFrame(tick);
+        }
+      }
+      timerAnimationFrameId = requestAnimationFrame(tick);
+    }
+
+    function pauseTimer() {
+      timerRunning = false;
+      if (timerAnimationFrameId) cancelAnimationFrame(timerAnimationFrameId);
+
+      document.getElementById('timer-status-badge').innerText = "PAUSED";
+      document.getElementById('timer-status-badge').className = "mt-2 px-2.5 py-0.5 rounded-full text-[10px] font-bold tracking-widest uppercase bg-amber-500/20 text-amber-400 border border-amber-500/30";
+
+      const startBtnText = document.getElementById('timer-start-text');
+      const startBtnIcon = document.getElementById('timer-start-icon');
+      startBtnText.innerText = "再開";
+      startBtnIcon.setAttribute('data-lucide', 'play');
+      lucide.createIcons();
+
+      updateDocTitle();
+    }
+
+    function resetTimer() {
+      pauseTimer();
+      timerRemaining = timerDuration;
+
+      document.getElementById('timer-status-badge').innerText = "READY";
+      document.getElementById('timer-status-badge').className = "mt-2 px-2.5 py-0.5 rounded-full text-[10px] font-bold tracking-widest uppercase bg-slate-800 text-slate-400 border border-slate-700";
+
+      const startBtnText = document.getElementById('timer-start-text');
+      startBtnText.innerText = "スタート";
+
+      updateTimerDisplay();
+    }
+
+    function setTimerPreset(minutes) {
+      pauseTimer();
+      timerDuration = minutes * 60 * 1000;
+      timerRemaining = timerDuration;
+      
+      // 入力フォームの同期
+      document.getElementById('input-hours').value = Math.floor(minutes / 60);
+      document.getElementById('input-minutes').value = minutes % 60;
+      document.getElementById('input-seconds').value = 0;
+      document.getElementById('timer-slider').value = Math.min(minutes, 120);
+      document.getElementById('slider-val-text').innerText = `${minutes} 分`;
+
+      updateSubText(minutes * 60);
+      resetTimer();
+    }
+
+    function updateSubText(totalSec) {
+      const h = Math.floor(totalSec / 3600);
+      const m = Math.floor((totalSec % 3600) / 60);
+      const s = totalSec % 60;
+      let text = "目標: ";
+      if (h > 0) text += `${h}時間 `;
+      if (m > 0 || h > 0) text += `${m}分 `;
+      text += `${s}秒`;
+      document.getElementById('timer-sub-text').innerText = text;
+    }
+
+    function toggleTimerSettings() {
+      const panel = document.getElementById('timer-settings-panel');
+      panel.classList.toggle('hidden');
+    }
+
+    function updateTimerFromInputs() {
+      const h = parseInt(document.getElementById('input-hours').value) || 0;
+      const m = parseInt(document.getElementById('input-minutes').value) || 0;
+      const s = parseInt(document.getElementById('input-seconds').value) || 0;
+
+      const totalMs = ((h * 3600) + (m * 60) + s) * 1000;
+      if (totalMs <= 0) return;
+
+      pauseTimer();
+      timerDuration = totalMs;
+      timerRemaining = totalMs;
+      updateSubText((h * 3600) + (m * 60) + s);
+      resetTimer();
+    }
+
+    function onSliderInput(val) {
+      document.getElementById('slider-val-text').innerText = `${val} 分`;
+      setTimerPreset(parseInt(val));
+    }
+
+    function onTimerComplete() {
+      playAlarmSound();
+      document.body.classList.add('alarm-active');
+      document.getElementById('alarm-modal').classList.remove('hidden');
+    }
+
+    // ==========================================
+    // 2. ストップウォッチ ロジック
+    // ==========================================
+    function updateStopwatchDisplay() {
+      const minutes = Math.floor(swAccumulatedTime / 60000);
+      const seconds = Math.floor((swAccumulatedTime % 60000) / 1000);
+      const ms = Math.floor((swAccumulatedTime % 1000) / 10);
+
+      const displayElem = document.getElementById('stopwatch-display');
+      displayElem.innerHTML = `${padZero(minutes)}:${padZero(seconds)}<span class="text-2xl sm:text-3xl text-emerald-400">.${padZero(ms)}</span>`;
+
+      updateDocTitle();
+    }
+
+    function toggleStopwatch() {
+      initAudioContext();
+      if (swRunning) {
+        pauseStopwatch();
+      } else {
+        startStopwatch();
+      }
+    }
+
+    function startStopwatch() {
+      swRunning = true;
+      swStartTime = Date.now() - swAccumulatedTime;
+
+      document.getElementById('stopwatch-status-badge').innerText = "RUNNING";
+      document.getElementById('stopwatch-status-badge').className = "mt-3 px-2.5 py-0.5 rounded-full text-[10px] font-bold tracking-widest uppercase bg-emerald-500/20 text-emerald-400 border border-emerald-500/30";
+
+      const btnText = document.getElementById('sw-start-text');
+      const btnIcon = document.getElementById('sw-start-icon');
+      btnText.innerText = "停止";
+      btnIcon.setAttribute('data-lucide', 'pause');
+      lucide.createIcons();
+
+      // ラップボタンの有効化
+      const lapBtn = document.getElementById('sw-lap-btn');
+      lapBtn.disabled = false;
+      lapBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+
+      function tick() {
+        if (!swRunning) return;
+        swAccumulatedTime = Date.now() - swStartTime;
+        updateStopwatchDisplay();
+        swAnimationFrameId = requestAnimationFrame(tick);
+      }
+      swAnimationFrameId = requestAnimationFrame(tick);
+    }
+
+    function pauseStopwatch() {
+      swRunning = false;
+      if (swAnimationFrameId) cancelAnimationFrame(swAnimationFrameId);
+
+      document.getElementById('stopwatch-status-badge').innerText = "PAUSED";
+      document.getElementById('stopwatch-status-badge').className = "mt-3 px-2.5 py-0.5 rounded-full text-[10px] font-bold tracking-widest uppercase bg-amber-500/20 text-amber-400 border border-amber-500/30";
+
+      const btnText = document.getElementById('sw-start-text');
+      const btnIcon = document.getElementById('sw-start-icon');
+      btnText.innerText = "再開";
+      btnIcon.setAttribute('data-lucide', 'play');
+      lucide.createIcons();
+
+      updateDocTitle();
+    }
+
+    function resetStopwatch() {
+      pauseStopwatch();
+      swAccumulatedTime = 0;
+      swLaps = [];
+
+      document.getElementById('stopwatch-status-badge').innerText = "STOPPED";
+      document.getElementById('stopwatch-status-badge').className = "mt-3 px-2.5 py-0.5 rounded-full text-[10px] font-bold tracking-widest uppercase bg-slate-800 text-slate-400 border border-slate-700";
+
+      const btnText = document.getElementById('sw-start-text');
+      btnText.innerText = "スタート";
+
+      const lapBtn = document.getElementById('sw-lap-btn');
+      lapBtn.disabled = true;
+      lapBtn.classList.add('opacity-50', 'cursor-not-allowed');
+
+      renderLaps();
+      updateStopwatchDisplay();
+    }
+
+    function addLap() {
+      if (!swRunning) return;
+      
+      const lastTotal = swLaps.length > 0 ? swLaps[0].totalTime : 0;
+      const lapTime = swAccumulatedTime - lastTotal;
+
+      const newLap = {
+        id: swLaps.length + 1,
+        lapTime: lapTime,
+        totalTime: swAccumulatedTime
+      };
+
+      swLaps.unshift(newLap); // 最新のラップを先頭に追加
+      renderLaps();
+    }
+
+    function renderLaps() {
+      const emptyState = document.getElementById('lap-list-empty');
+      const lapTable = document.getElementById('lap-table');
+      const lapBody = document.getElementById('lap-list-body');
+      const countBadge = document.getElementById('lap-count-badge');
+
+      countBadge.innerText = `${swLaps.length} 件`;
+
+      if (swLaps.length === 0) {
+        emptyState.classList.remove('hidden');
+        lapTable.classList.add('hidden');
+        return;
+      }
+
+      emptyState.classList.add('hidden');
+      lapTable.classList.remove('hidden');
+
+      // 最速ラップ・最遅ラップの算出（ラップ数が2以上の時）
+      let minLapTime = Infinity;
+      let maxLapTime = -1;
+
+      if (swLaps.length >= 2) {
+        swLaps.forEach(l => {
+          if (l.lapTime < minLapTime) minLapTime = l.lapTime;
+          if (l.lapTime > maxLapTime) maxLapTime = l.lapTime;
+        });
+      }
+
+      lapBody.innerHTML = swLaps.map(lap => {
+        let highlightClass = "";
+        let badge = "";
+
+        if (swLaps.length >= 2) {
+          if (lap.lapTime === minLapTime) {
+            highlightClass = "text-emerald-400 bg-emerald-500/10 font-bold";
+            badge = `<span class="ml-2 text-[9px] px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">最速</span>`;
+          } else if (lap.lapTime === maxLapTime) {
+            highlightClass = "text-rose-400 bg-rose-500/10";
+            badge = `<span class="ml-2 text-[9px] px-1.5 py-0.2 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30">最遅</span>`;
+          }
+        }
+
+        return `
+          <tr class="${highlightClass} hover:bg-slate-800/40 transition-colors">
+            <td class="py-2.5 px-3 font-sans font-medium text-slate-400">#${lap.id}</td>
+            <td class="py-2.5 px-3">${formatMs(lap.lapTime)}${badge}</td>
+            <td class="py-2.5 px-3 text-right text-slate-400">${formatMs(lap.totalTime)}</td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    // ==========================================
+    // 3. Web Audio API サウンド合成 (アラーム音)
+    // ==========================================
+    function initAudioContext() {
+      if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+    }
+
+    function playAlarmSound() {
+      initAudioContext();
+      if (!audioCtx) return;
+
+      let beepCount = 0;
+      alarmInterval = setInterval(() => {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+
+        osc.type = 'sine';
+        // トーンピッチの交差（ピ・ピ・ピ）
+        osc.frequency.value = (beepCount % 2 === 0) ? 880 : 1046.5; // A5 または C6
+
+        gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.25);
+
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.25);
+
+        beepCount++;
+      }, 350);
+    }
+
+    function stopAlarmSound() {
+      if (alarmInterval) {
+        clearInterval(alarmInterval);
+        alarmInterval = null;
+      }
+      document.body.classList.remove('alarm-active');
+      document.getElementById('alarm-modal').classList.add('hidden');
+    }
+
+    // ==========================================
+    // 4. ユーティリティ・アクセシビリティ
+    // ==========================================
+    function padZero(num, length = 2) {
+      return String(num).padStart(length, '0');
+    }
+
+    function formatMs(ms) {
+      const minutes = Math.floor(ms / 60000);
+      const seconds = Math.floor((ms % 60000) / 1000);
+      const milli = Math.floor((ms % 1000) / 10);
+      return `${padZero(minutes)}:${padZero(seconds)}.${padZero(milli)}`;
+    }
+
+    function updateDocTitle() {
+      if (currentTab === 'timer') {
+        const totalSeconds = Math.ceil(timerRemaining / 1000);
+        const m = Math.floor(totalSeconds / 60);
+        const s = totalSeconds % 60;
+        const status = timerRunning ? "⏳" : "⏸";
+        document.title = `${status} ${padZero(m)}:${padZero(s)} - タイマー`;
+      } else {
+        const m = Math.floor(swAccumulatedTime / 60000);
+        const s = Math.floor((swAccumulatedTime % 60000) / 1000);
+        const status = swRunning ? "⏱" : "⏸";
+        document.title = `${status} ${padZero(m)}:${padZero(s)} - ストップウォッチ`;
+      }
+    }
+
+    // キーボードショートカット設定
+    document.addEventListener('keydown', (e) => {
+      // 入力フォーム操作中はショートカットを無効化
+      if (['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName)) {
+        return;
+      }
+
+      if (e.code === 'Space') {
+        e.preventDefault();
+        if (currentTab === 'timer') toggleTimer();
+        else toggleStopwatch();
+      } else if (e.code === 'KeyR') {
+        e.preventDefault();
+        if (currentTab === 'timer') resetTimer();
+        else resetStopwatch();
+      } else if (e.code === 'KeyL') {
+        if (currentTab === 'stopwatch') {
+          e.preventDefault();
+          addLap();
+        }
+      } else if (e.code === 'Escape') {
+        stopAlarmSound();
+      }
+    });
+
+    // 初期化実行
+    updateTimerDisplay();
+    updateStopwatchDisplay();
+  </script>
+</body>
 </html>
